@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+build/
+dist/
+*.egg-info/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Credenziali e configurazioni locali
+run-example.ps1
+.env
+*.local.*
+
+# OS
+.DS_Store
+Thumbs.db
+
