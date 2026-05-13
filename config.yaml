@@ -1,0 +1,17 @@
+llm-chat:
+  url: "https://api.ollama.com"
+  api_key: "7177994c33354bfd80b7244667f61406.ASx9X2-zM-diubtImF1VQ8qH"
+  model: "gemma3:27b"
+  timeout: 120
+
+llm-embed:
+  url: "http://localhost:11434"
+  model: "nomic-embed-text"
+
+oracle:
+  host: "192.168.15.5"
+  port: 1521
+  service: "PDB1_WORKLOAD"
+  user: "analyzer"
+  password: "anacleto"
+

@@ -1,5 +1,7 @@
 import argparse
-from langchain_ollama import ChatOllama
+import sys
+import yaml
+from langchain_ollama import ChatOllama, OllamaEmbeddings
 
 from clients import MockClient
 from clients.oracle_client import OracleClient
@@ -13,64 +15,101 @@ def load_cdr_types(mock_client: MockClient):
     """Carica i tipi di CDR"""
     return mock_client.load_cdr_types()
 
+
+def load_config(path: str) -> dict:
+    """Carica la configurazione da file YAML."""
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return yaml.safe_load(f)
+    except FileNotFoundError:
+        print(f"[ERROR] File di configurazione non trovato: {path}")
+        sys.exit(1)
+    except yaml.YAMLError as e:
+        print(f"[ERROR] Errore nel parsing del file YAML: {e}")
+        sys.exit(1)
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Init Functions
 # ─────────────────────────────────────────────────────────────────────────────
-def init_llm(args):
-    """Inizializza e restituisce l'istanza dell'LLM configurata da CLI."""
-    # client_kwargs = {"timeout": args.llm_timeout}
-    client_kwargs = {}
-    if args.llm_api_key != "":
-        client_kwargs["headers"] = {"Authorization": f"Bearer {args.llm_api_key}"}
+def init_llm(cfg: dict) -> dict:
+    """
+    Inizializza tutti i modelli LLM definiti nel config.
 
-    llm = ChatOllama(
-        base_url = args.llm_url,
-        model = args.llm_model,
-        temperature = 0.3,
-        client_kwargs = client_kwargs,
-    )
-    print(f"[OK] LLM inizializzato.")
+    Riconosce automaticamente le sezioni che iniziano con 'llm-' e
+    istanzia ChatOllama o OllamaEmbeddings in base al nome:
+      - llm-chat  → ChatOllama  (modello generativo)
+      - llm-embed → OllamaEmbeddings (modello di embedding)
 
-    return llm
+    Returns:
+        dict con i modelli pronti all'uso, indicizzati per nome logico.
+    """
+    llms = {}
+    for key, llm_cfg in cfg.items():
+        if not key.startswith("llm-"):
+            continue
+
+        client_kwargs = {}
+        if llm_cfg.get("api_key"):
+            client_kwargs["headers"] = {"Authorization": f"Bearer {llm_cfg['api_key']}"}
+
+        if key == "llm-embed":
+            llms[key] = OllamaEmbeddings(
+                base_url=llm_cfg["url"],
+                model=llm_cfg["model"],
+                client_kwargs=client_kwargs,
+            )
+        else:
+            llms[key] = ChatOllama(
+                base_url=llm_cfg["url"],
+                model=llm_cfg["model"],
+                temperature=0.1,
+                client_kwargs=client_kwargs,
+            )
+
+        print(f"[OK] LLM inizializzato: {key} (model={llm_cfg['model']}).")
+
+    return llms
 
 
-def init_clients(args) -> dict:
+def init_clients(cfg: dict) -> dict:
     """
     Inizializza tutti i client verso sistemi esterni (ORACLE, ES, ecc.).
 
     Returns:
         dict con i client pronti all'uso, indicizzati per nome logico.
     """
+    oracle_cfg = cfg["oracle"]
     clients = {}
 
     clients["mock"] = MockClient()
 
     clients["oracle"] = OracleClient(
-        host = args.oracle_host,
-        port = args.oracle_port,
-        service_name = args.oracle_service,
-        user = args.oracle_user,
-        password = args.oracle_password,
+        host=oracle_cfg["host"],
+        port=oracle_cfg["port"],
+        service_name=oracle_cfg["service"],
+        user=oracle_cfg["user"],
+        password=oracle_cfg["password"],
     )
 
     print(f"[OK] Client inizializzati. {', '.join(clients.keys())}")
-
     return clients
 
 
-def init_resolvers(llm) -> dict:
+def init_resolvers(llm_chat, llm_embed) -> dict:
     """
-    Inizializza tutti i resolver semantici basati sull'LLM.
+    Inizializza tutti i resolver semantici.
 
     Args:
-        llm: istanza dell'LLM da iniettare nei resolver.
+        llm_chat:  modello generativo per la classificazione finale.
+        llm_embed: modello di embedding per il pre-filtro semantico su metadata.
 
     Returns:
         dict con i resolver pronti all'uso, indicizzati per nome logico.
     """
     resolvers = {}
 
-    resolvers["cdr_type"] = CdrTypeResolver(llm = llm)
+    resolvers["cdr_type"] = CdrTypeResolver(llm_chat=llm_chat, llm_embed=llm_embed)
 
     print(f"[OK] Resolver inizializzati: {', '.join(resolvers.keys())}")
     return resolvers
@@ -81,32 +120,19 @@ def init_resolvers(llm) -> dict:
 # ─────────────────────────────────────────────────────────────────────────────
 def main():
     parser = argparse.ArgumentParser(description="Gemini Query Chat (for API)")
-
-    # LLM parameters
-    # parser.add_argument("--llm-url", default="http://localhost:11434", help="LLM - Url")
-    # parser.add_argument("--llm-api-key", default="", help="LLM - Api Key")
-    # parser.add_argument("--llm-model", default="qwen3.5:4b", help="LLM - Model")
-    # parser.add_argument("--llm-timeout", default=120, type=int, help="LLM - Timeout (secondi)")
-
-    parser.add_argument("--llm-url", default="https://api.ollama.com", help="LLM - Url")
-    parser.add_argument("--llm-api-key", default="7177994c33354bfd80b7244667f61406.ASx9X2-zM-diubtImF1VQ8qH", help="LLM - Api Key")
-    parser.add_argument("--llm-model", default="gemma3:12b", help="LLM - Model")
-    parser.add_argument("--llm-timeout", default=120, type=int, help="LLM - Timeout (secondi)")
-
-
-# Oracle DB parameters
-    parser.add_argument("--oracle-host", default="192.168.15.5", help="Oracle - Host")
-    parser.add_argument("--oracle-port", default=1521, type=int, help="Oracle - Port")
-    parser.add_argument("--oracle-service", default="PDB1_WORKLOAD", help="Oracle - Service Name")
-    parser.add_argument("--oracle-user", default="analyzer", help="Oracle - Username")
-    parser.add_argument("--oracle-password", default="anacleto", help="Oracle - Password")
-
+    parser.add_argument(
+        "--config",
+        default="config.yaml",
+        help="Percorso del file di configurazione YAML (default: config.yaml)",
+    )
     args = parser.parse_args()
 
+    cfg = load_config(args.config)
+
     # Inizializza
-    llm = init_llm(args)
-    resolvers = init_resolvers(llm)
-    clients = init_clients(args)
+    llms = init_llm(cfg)
+    resolvers = init_resolvers(llms["llm-chat"], llms["llm-embed"])
+    clients = init_clients(cfg)
 
     cdr_types = load_cdr_types(clients["mock"])
 

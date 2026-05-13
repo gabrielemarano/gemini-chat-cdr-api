@@ -2,49 +2,49 @@
 Modulo per la risoluzione del tipo CDR dalle richieste utente.
 
 La classe ``CdrTypeResolver`` interpreta semanticamente (tramite LLM) una
-query in linguaggio naturale italiano e la mappa su uno degli id presenti
-nella lista dei tipi CDR fornita dal chiamante.
+query in linguaggio naturale e la mappa su uno degli id presenti nella lista
+dei tipi CDR fornita dal chiamante.
 
-Regole funzionali:
-    1. La query viene interpretata semanticamente (NON con string matching).
-    2. Il modello deve riconoscere il protocollo / dominio (es. SIP, GTP, ...).
-    3. Deve distinguere il livello di granularita' richiesto:
-         - "chiamate SIP"     -> solo SIP Call (id=1)
-         - "cartellini SIP"   -> tutti i tipi SIP (1, 2, 5, 47)
-    4. Se la query e' ambigua, il modello puo' restituire piu' id candidati.
-    5. La funzione pubblica ``resolve`` deve ritornare un SOLO id: se i
-       candidati sono piu' di uno viene chiesto all'utente di scegliere.
-    6. L'utente puo' uscire in qualsiasi momento digitando ``esci``
-       (oltre a ``exit``, ``quit``, ``q``).
+Pipeline:
+    1. Pre-filtro via embeddings: vettorizza la richiesta e il campo ``metadata``
+       di ogni CDR, restituisce i top-k per similarità coseno.
+    2. LLM generativo: sceglie tra i candidati ristretti e restituisce gli id.
+    3. Disambiguazione interattiva se i candidati sono più di uno.
 """
 import json
+import math
 import re
 import sys
 from typing import Any, Dict, List, Optional, Tuple
-
 from langchain_core.messages import HumanMessage, SystemMessage
 
 
-# Comandi che permettono all'utente di uscire in qualsiasi momento.
 EXIT_COMMANDS = {"esci", "exit", "quit", "q"}
+
+
+class _NewQuery(Exception):
+    """Segnala che l'utente ha digitato una nuova query durante la disambiguazione."""
+    def __init__(self, query: str):
+        self.query = query
 
 
 class CdrTypeResolver:
     """
-    Resolver semantico dei tipi CDR basato su LLM.
+    Resolver semantico dei tipi CDR.
 
-    Non assume nessun campo specifico nei dizionari ``cdr_types`` se non
-    il campo obbligatorio ``id``: l'intera lista viene serializzata in
-    JSON e passata al modello, che ragiona sui campi disponibili
-    (tipicamente ``name``, ``index``, ``description``).
+    Usa embeddings sul campo ``metadata`` dei CDR per un pre-filtro
+    language-agnostic e zero-hardcoding, poi delega la scelta finale all'LLM.
     """
 
-    def __init__(self, llm):
+    def __init__(self, llm_chat, llm_embed):
         """
         Args:
-            llm: istanza di un modello LangChain compatibile (es. ChatOllama).
+            llm_chat:  modello generativo LangChain (es. ChatOllama).
+            llm_embed: modello di embedding LangChain (es. OllamaEmbeddings).
         """
-        self.llm = llm
+        self.llm_chat = llm_chat
+        self.llm_embed = llm_embed
+        self._cache: Dict[str, List[float]] = {}
 
     # ------------------------------------------------------------------ #
     # API pubblica                                                       #
@@ -54,215 +54,250 @@ class CdrTypeResolver:
         user_request: str,
         cdr_types: List[Dict[str, Any]],
     ) -> Tuple[Any, Optional[str]]:
-        """
-        Determina l'id (uno e uno solo) del tipo CDR pertinente alla
-        richiesta utente.
-
-        Args:
-            user_request: testo libero in italiano scritto dall'utente.
-            cdr_types:    lista di dizionari che descrivono i tipi CDR.
-                          L'unico campo obbligatorio e' ``id``.
-
-        Returns:
-            Tupla ``(id, name)``. ``name`` puo' essere ``None`` se i
-            tipi CDR non espongono tale campo.
-        """
         if not cdr_types:
             raise ValueError("La lista dei tipi CDR e' vuota.")
 
-        # Indicizza i tipi CDR per id (normalizzato) per lookup rapido.
         types_by_id = {self._normalize_id(t["id"]): t for t in cdr_types}
 
         current_request = user_request
         while True:
-            candidate_ids = self._ask_llm(current_request, cdr_types)
+            filtered = self._pre_filter(current_request, cdr_types)
 
-            # Filtra eventuali id "inventati" non presenti nella lista
-            # e rimuove duplicati preservando l'ordine.
+            if len(filtered) < len(cdr_types):
+                print(f"[*] Pre-filtro: ridotti da {len(cdr_types)} a {len(filtered)} candidati")
+
+            candidate_ids = self._ask_llm(current_request, filtered)
             candidate_ids = [cid for cid in candidate_ids if cid in types_by_id]
             candidate_ids = list(dict.fromkeys(candidate_ids))
 
-            # Caso 1: un solo candidato -> ritorno diretto.
+            # Retry con prompt semplificato se l'LLM non ha restituito id
+            # ma il pre-filtro aveva già ristretto la lista
+            if len(candidate_ids) == 0 and len(filtered) < len(cdr_types):
+                print("[*] Retry LLM con prompt semplificato...")
+                candidate_ids = self._ask_llm(current_request, filtered, simplified=True)
+                candidate_ids = [cid for cid in candidate_ids if cid in types_by_id]
+                candidate_ids = list(dict.fromkeys(candidate_ids))
+
             if len(candidate_ids) == 1:
                 selected = types_by_id[candidate_ids[0]]
                 return selected["id"], selected.get("name")
 
-            # Caso 2: nessun candidato -> chiedi di riformulare.
             if len(candidate_ids) == 0:
-                print("[!] Non sono riuscito a individuare un tipo CDR adatto "
-                      "alla richiesta.")
-                current_request = self._prompt_user(
-                    "Riformula la richiesta (o 'esci' per uscire) > "
-                )
+                # Se il pre-filtro ha trovato candidati ma l'LLM non ha capito
+                # la richiesta (es. termine generico come "cartellini"), mostra
+                # direttamente i candidati del pre-filtro all'utente.
+                if len(filtered) < len(cdr_types):
+                    if len(filtered) == 1:
+                        selected = filtered[0]
+                        return selected["id"], selected.get("name")
+                    print("[*] Il termine e' generico: mostro tutti i candidati trovati.")
+                    try:
+                        selected = self._disambiguate(filtered)
+                        return selected["id"], selected.get("name")
+                    except _NewQuery as nq:
+                        current_request = nq.query
+                        continue
+
+                print("[!] Non sono riuscito a individuare un tipo CDR adatto alla richiesta.")
+                current_request = self._prompt_user("Riformula la richiesta (o 'esci' per uscire) > ")
                 continue
 
-            # Caso 3: piu' candidati -> disambiguazione interattiva.
-            selected = self._disambiguate(
-                [types_by_id[cid] for cid in candidate_ids]
-            )
-            return selected["id"], selected.get("name")
+            try:
+                selected = self._disambiguate([types_by_id[cid] for cid in candidate_ids])
+                return selected["id"], selected.get("name")
+            except _NewQuery as nq:
+                current_request = nq.query
+                continue
+
+        raise RuntimeError("Impossibile risolvere il tipo CDR.")
+
+    # ------------------------------------------------------------------ #
+    # Pre-filtro via embeddings su metadata                              #
+    # ------------------------------------------------------------------ #
+    def _embed(self, text: str) -> List[float]:
+        """Embedding con cache per evitare chiamate ripetute sui CDR."""
+        if text not in self._cache:
+            self._cache[text] = self.llm_embed.embed_query(text)
+        return self._cache[text]
+
+    @staticmethod
+    def _cosine(a: List[float], b: List[float]) -> float:
+        dot = sum(x * y for x, y in zip(a, b))
+        na = math.sqrt(sum(x * x for x in a))
+        nb = math.sqrt(sum(x * x for x in b))
+        return dot / (na * nb) if na and nb else 0.0
+
+    def _pre_filter(
+        self,
+        user_request: str,
+        cdr_types: List[Dict[str, Any]],
+        top_k: int = 8,
+        gap: float = 0.18,
+    ) -> List[Dict[str, Any]]:
+        """
+        Pre-filtro ibrido in due fasi:
+
+        Fase 1 — match letterale sui token tecnici estratti dai nomi CDR.
+           I nomi contengono termini tecnici inequivocabili (SIP, GTP, HTTP,
+           NGAP, ecc.) estratti dai dati stessi, zero hardcoding.
+           "cartellini sip di oggi" → trova "sip" → tutti i CDR SIP.
+
+        Fase 2 — fallback embeddings su name + metadata.
+           Usata quando la richiesta non contiene token tecnici riconoscibili
+           (es. "segnalazione mobile", "traffico voce").
+        """
+        request_lower = user_request.lower()
+
+        # Fase 1: match letterale sui token dei nomi CDR (word boundary)
+        matched = []
+        for cdr in cdr_types:
+            name_tokens = re.findall(r"[A-Za-z0-9][A-Za-z0-9./+\-]*", str(cdr.get("name", "")))
+            for token in name_tokens:
+                if len(token) > 1 and re.search(r"\b" + re.escape(token.lower()) + r"\b", request_lower):
+                    matched.append(cdr)
+                    break
+
+        if matched:
+            return matched
+
+        # Fase 2: fallback embeddings su name + metadata
+        try:
+            req_vec = self._embed(user_request)
+            scored = []
+            for cdr in cdr_types:
+                text = f"{cdr.get('name', '')} {cdr.get('metadata', '')}".strip()
+                cdr_vec = self._embed(text)
+                scored.append((self._cosine(req_vec, cdr_vec), cdr))
+
+            scored.sort(key=lambda x: x[0], reverse=True)
+            top_sim = scored[0][0]
+            return [cdr for sim, cdr in scored[:top_k] if top_sim - sim <= gap] or cdr_types
+
+        except Exception as e:
+            print(f"[!] Embedding non disponibile, uso lista completa ({e})")
+            return cdr_types
 
     # ------------------------------------------------------------------ #
     # Interazione con l'LLM                                              #
     # ------------------------------------------------------------------ #
-    def _ask_llm(
-        self,
-        user_request: str,
-        cdr_types: List[Dict[str, Any]],
-    ) -> List[Any]:
-        """
-        Invoca l'LLM e restituisce la lista degli id candidati.
-        """
-        system_prompt = """\
-Sei un assistente esperto di reti di telecomunicazione e di Call Detail
-Record (CDR). Ricevi:
-  - una richiesta in linguaggio naturale (italiano) di un operatore;
-  - una lista di tipi di CDR disponibili (in formato JSON), ognuno con
-    almeno un campo 'id' e tipicamente anche 'name', 'index' e
-    'description'.
+    def _ask_llm(self, user_request: str, cdr_types: List[Dict[str, Any]], simplified: bool = False) -> List[Any]:
+        if simplified:
+            system_prompt = """\
+Sei un classificatore di tipi CDR in ambito telecomunicazioni.
+Scegli il o i CDR più coerenti con la richiesta utente tra quelli forniti.
+Devi SEMPRE restituire almeno un id: scegli quello più probabile.
+Non restituire mai una lista vuota se ci sono candidati forniti.
+Formato TASSATIVO - solo JSON valido, nessun testo extra:
+{"ids": [<id1>, <id2>, ...]}"""
+        else:
+            system_prompt = """\
+Sei un classificatore semantico di tipi di Call Detail Record (CDR) in
+ambito telecomunicazioni.
 
-Il tuo compito e' selezionare gli id dei tipi CDR semanticamente
-pertinenti alla richiesta. Devi ragionare sul SIGNIFICATO dei campi
-(in particolare 'description'), non fare un semplice match testuale.
+Per ogni CDR hai a disposizione:
+  - id:       identificativo univoco
+  - name:     nome del tipo
+  - metadata: descrizione semantica del cartellino
 
-Linee guida fondamentali:
-  * Riconosci il protocollo o il dominio menzionato nella richiesta
-    (es. SIP, H.323, ISUP, GTP, S1AP, NGAP, HTTP, DNS, DIAMETER, ecc.)
-    e considera SOLO i tipi CDR di quel dominio.
-  * Distingui il livello di granularita':
-      - se l'utente chiede esplicitamente le 'chiamate' di un
-        protocollo, seleziona solo il tipo che rappresenta la chiamata
-        vera e propria (es. 'chiamate SIP' -> solo SIP Call, id=1);
-      - se l'utente parla genericamente di 'cartellini', 'eventi',
-        'traffico' di un protocollo, includi TUTTI i tipi CDR di quel
-        protocollo (es. 'cartellini SIP' -> SIP Call, SIP Register,
-        SIP METHOD, SIP SCENARIO).
-  * Ignora completamente i tipi CDR che NON appartengono al dominio
-    richiesto.
-  * Se la richiesta e' ambigua, includi piu' id candidati: sara'
-    l'utente a scegliere.
-  * Non inventare id: usa SOLO quelli presenti nella lista fornita,
-    copiandoli esattamente (rispettando il tipo: intero o stringa).
+Scegli il o i CDR più coerenti con la richiesta utente.
 
-Formato di risposta TASSATIVO:
-  Rispondi ESCLUSIVAMENTE con un oggetto JSON valido, senza testo
-  aggiuntivo, senza markdown e senza commenti.
-  Schema: {"ids": [<id1>, <id2>, ...]}
-  Se nessun tipo CDR e' pertinente: {"ids": []}."""
+IMPORTANTE — termini generici vs. termini specifici:
+  - Se la richiesta contiene un termine generico che descrive una categoria
+    (es. un tipo di traffico, un dominio tecnologico, una funzione di rete)
+    senza indicare un protocollo o un tipo preciso, interpretalo come la
+    volontà di ottenere TUTTI i CDR appartenenti a quella categoria.
+  - Se invece la richiesta contiene un identificativo tecnico preciso
+    (nome di protocollo, standard, interfaccia, ecc.), seleziona solo i CDR
+    che corrispondono esattamente a quell'identificativo.
+  - In caso di ambiguità, preferisci restituire più id piuttosto che uno solo.
 
-        user_prompt = f"""\
-Richiesta utente:
-\"\"\"
-{user_request}
-\"\"\"
+IMPORTANTE — combinazione protocollo + tipo evento:
+  - Se la richiesta specifica sia un identificativo tecnico preciso sia un
+    tipo di evento o funzione, seleziona SOLO il CDR il cui name e metadata
+    rappresentano esattamente quella combinazione, senza allargare ad altri
+    CDR dello stesso protocollo o della stessa famiglia di eventi.
 
-Lista dei tipi CDR disponibili (JSON):
-{json.dumps(cdr_types, ensure_ascii=False, default=str)}
+Regole:
+  - protocollo + tipo evento specifici → restituisci SOLO l'id che li combina entrambi
+  - termine tecnico specifico senza tipo evento → restituisci tutti gli id di quel protocollo
+  - termine generico di categoria senza protocollo → restituisci TUTTI gli id della famiglia
+  - richiesta ampia o che copre più famiglie → restituisci tutti gli id pertinenti
+  - richiesta incomprensibile o non mappabile su alcun CDR → restituisci lista vuota
+  - non inventare id: usa solo quelli presenti nella lista
 
-Rispondi SOLO con il JSON {{"ids": [...]}}."""
+Formato TASSATIVO - solo JSON valido, nessun testo extra:
+{"ids": [<id1>, <id2>, ...]}"""
 
-        response = self.llm.invoke([
+        compact = [
+            {"id": c.get("id"), "name": c.get("name"), "metadata": c.get("metadata", "")}
+            for c in cdr_types
+        ]
+
+        user_prompt = (
+            f'Richiesta utente:\n"""\n{user_request}\n"""\n\n'
+            f"Lista CDR disponibili (JSON):\n{json.dumps(compact, ensure_ascii=False, default=str)}\n\n"
+            f'Rispondi SOLO con il JSON {{"ids": [...]}}.'
+        )
+
+        print(f"Caratteri: ( system_prompt: {len(system_prompt)} + user_prompt: {len(user_prompt)} ) = {len(system_prompt) + len(user_prompt)}")
+
+        response = self.llm_chat.invoke([
             SystemMessage(content=system_prompt),
             HumanMessage(content=user_prompt),
         ])
-
-        content = getattr(response, "content", str(response))
-        return self._parse_ids(content)
+        return self._parse_ids(getattr(response, "content", str(response)))
 
     # ------------------------------------------------------------------ #
-    # Parsing della risposta dell'LLM                                    #
+    # Parsing risposta LLM                                               #
     # ------------------------------------------------------------------ #
     @staticmethod
     def _parse_ids(raw: str) -> List[Any]:
-        """
-        Estrae la lista di id dalla risposta testuale dell'LLM.
-        Tollerante a fence markdown e a testo extra prima/dopo il JSON.
-        """
-        if raw is None:
+        if not raw:
             return []
-
-        text = raw.strip()
-        # Rimuove eventuali fence markdown ```json ... ```
-        text = re.sub(r"^```(?:json)?\s*", "", text)
+        text = re.sub(r"^```(?:json)?\s*", "", raw.strip())
         text = re.sub(r"\s*```$", "", text)
-
-        candidates = []
-
-        # Tentativo 1: l'intero testo e' JSON valido.
-        try:
-            candidates.append(json.loads(text))
-        except json.JSONDecodeError:
-            pass
-
-        # Tentativo 2: cerca il primo oggetto JSON nel testo.
-        if not candidates:
-            match = re.search(r"\{.*\}", text, re.DOTALL)
-            if match:
-                try:
-                    candidates.append(json.loads(match.group(0)))
-                except json.JSONDecodeError:
-                    pass
-
-        for data in candidates:
-            if isinstance(data, dict) and isinstance(data.get("ids"), list):
-                return [CdrTypeResolver._normalize_id(x) for x in data["ids"]]
-            if isinstance(data, list):
-                return [CdrTypeResolver._normalize_id(x) for x in data]
-
+        for attempt in [text, (re.search(r"\{.*}", text, re.DOTALL) or type("", (), {"group": lambda *a: ""})()).group(0)]:
+            try:
+                data = json.loads(attempt)
+                if isinstance(data, dict) and isinstance(data.get("ids"), list):
+                    return [CdrTypeResolver._normalize_id(x) for x in data["ids"]]
+                if isinstance(data, list):
+                    return [CdrTypeResolver._normalize_id(x) for x in data]
+            except (json.JSONDecodeError, AttributeError):
+                pass
         return []
 
     @staticmethod
     def _normalize_id(value: Any) -> Any:
-        """
-        Normalizza un id per il confronto. Le stringhe vengono trimmate,
-        gli altri tipi (es. interi) vengono lasciati invariati.
-        """
-        if isinstance(value, str):
-            return value.strip()
-        return value
+        return value.strip() if isinstance(value, str) else value
 
     # ------------------------------------------------------------------ #
     # Disambiguazione interattiva                                        #
     # ------------------------------------------------------------------ #
     def _disambiguate(self, candidates: List[Dict[str, Any]]) -> Dict[str, Any]:
-        """
-        Mostra l'elenco dei candidati e chiede all'utente di selezionarne
-        uno (per indice o direttamente per id).
-        """
-        print("\n[?] Sono stati individuati piu' tipi CDR compatibili. "
-              "Seleziona quello desiderato:")
+        print("\n[?] Sono stati individuati più tipi CDR compatibili. Seleziona quello desiderato:")
         for idx, cdr in enumerate(candidates, start=1):
-            name = cdr.get("name").strip()
-            print(f"  [{idx}] - {name}")
+            print(f"  [{idx}] {cdr.get('name', '')} — {cdr.get('metadata', '')}")
 
-        valid_indexes = {str(i) for i in range(1, len(candidates) + 1)}
-
+        valid = {str(i) for i in range(1, len(candidates) + 1)}
         while True:
-            choice = self._prompt_user(
-                "\nScegli il numero (o 'esci' per uscire) > "
-            )
-
-            if choice in valid_indexes:
+            choice = self._prompt_user("\nScegli il numero (o scrivi una nuova ricerca) > ")
+            if choice in valid:
                 return candidates[int(choice) - 1]
-
-            print("[!] Scelta non valida, riprova.")
+            # L'utente ha digitato testo libero: trattalo come nuova query
+            print(f"[*] Nuova ricerca: '{choice}'")
+            raise _NewQuery(choice)
 
     # ------------------------------------------------------------------ #
-    # Helper input utente con gestione "esci"                            #
+    # Helper input utente                                                #
     # ------------------------------------------------------------------ #
     @staticmethod
     def _prompt_user(prompt: str) -> str:
-        """
-        Legge una riga dall'utente. Se viene digitato un comando di uscita
-        (``esci``, ``exit``, ``quit``, ``q``) o viene premuto Ctrl+C/EOF,
-        termina immediatamente la sessione con ``sys.exit(0)``.
-        """
         try:
             value = input(prompt).strip()
         except (EOFError, KeyboardInterrupt):
             print("\n[*] Uscita dalla chat...")
             sys.exit(0)
-
         if value.lower() in EXIT_COMMANDS:
             print("[*] Uscita dalla chat...")
             sys.exit(0)

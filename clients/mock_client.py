@@ -22,499 +22,83 @@ class MockClient:
         Restituisce l'elenco completo dei tipi di CDR supportati.
 
         Ogni elemento contiene:
-            - id:          identificativo numerico univoco
-            - name:        nome breve del tipo di cartellino
-            - index:       indice/sorgente tecnica (modulo.tabella) da cui
-                           vengono estratti i dati grezzi
-            - description: descrizione semantica del protocollo/evento
-                           rappresentato dal cartellino
+            - id:       identificativo numerico univoco
+            - name:     nome breve del tipo di cartellino
+            - metadata: descrizione breve per ricerca semantica via embedding
         """
-        return [
-            {
-                "id": 1,
-                "name": "SIP Call",
-                "index": "mod_voip.raw_sip",
-                "description": (
-                    "Cartellino di chiamata VoIP basata sul protocollo SIP "
-                    "(Session Initiation Protocol, RFC 3261). Traccia il "
-                    "ciclo di vita di una sessione voce/video: INVITE, "
-                    "risposte provvisorie e finali, ACK, BYE, durata, "
-                    "endpoint coinvolti e codec negoziati."
-                ),
-            },
-            {
-                "id": 2,
-                "name": "SIP Register",
-                "index": "mod_voip.raw_sip_reg",
-                "description": (
-                    "Registrazione di uno user agent SIP presso il "
-                    "registrar (REGISTER). Contiene AOR, contact, expires, "
-                    "esito dell'autenticazione e binding dell'utente."
-                ),
-            },
-            {
-                "id": 3,
-                "name": "H323",
-                "index": "mod_voip.raw_h323",
-                "description": (
-                    "Cartellino di chiamata VoIP secondo lo stack ITU-T "
-                    "H.323 (segnalazione H.225/Q.931 e controllo H.245). "
-                    "Tipico di reti legacy e gateway PSTN."
-                ),
-            },
-            {
-                "id": 4,
-                "name": "H248/MEGACO",
-                "index": "mod_voip.raw_h248",
-                "description": (
-                    "Protocollo di controllo gateway H.248/MEGACO "
-                    "(RFC 3525) usato tra Media Gateway Controller e "
-                    "Media Gateway per gestire terminazioni e contesti "
-                    "media in reti NGN."
-                ),
-            },
-            {
-                "id": 5,
-                "name": "SIP METHOD",
-                "index": "mod_voip.raw_sip_method",
-                "description": (
-                    "Singolo metodo/transazione SIP non strettamente "
-                    "legato a una call (es. OPTIONS, MESSAGE, SUBSCRIBE, "
-                    "NOTIFY, PUBLISH, INFO, REFER). Utile per analisi "
-                    "puntuali a livello di metodo."
-                ),
-            },
-            {
-                "id": 6,
-                "name": "ISUP",
-                "index": "mod_ss7.raw_isup",
-                "description": (
-                    "ISDN User Part del protocollo SS7: segnalazione di "
-                    "chiamata in rete TDM/PSTN (IAM, ACM, ANM, REL, RLC) "
-                    "tra centrali di commutazione."
-                ),
-            },
-            {
-                "id": 7,
-                "name": "IUA",
-                "index": "mod_ss7.raw_iua",
-                "description": (
-                    "ISDN User Adaptation Layer (RFC 4233): trasporto "
-                    "della segnalazione ISDN Q.921/Q.931 su SCTP, ponte "
-                    "tra mondo TDM e reti IP (SIGTRAN)."
-                ),
-            },
-            {
-                "id": 8,
-                "name": "ASERI",
-                "index": "mod_ss7.raw_aseri",
-                "description": (
-                    "Cartellino proprietario per la segnalazione ASERI "
-                    "(varianti italiane SS7/CAS), usato in interconnessioni "
-                    "storiche con la rete Telecom Italia."
-                ),
-            },
-            {
-                "id": 9,
-                "name": "INAP",
-                "index": "mod_ss7.raw_inap",
-                "description": (
-                    "Intelligent Network Application Part: dialoghi tra "
-                    "SSP e SCP per servizi di rete intelligente (numeri "
-                    "verdi, prepagato, portabilita, VPN voce)."
-                ),
-            },
-            {
-                "id": 10,
-                "name": "MAP",
-                "index": "mod_ss7.raw_map",
-                "description": (
-                    "Mobile Application Part (SS7): dialoghi tra HLR, "
-                    "VLR, MSC, SMSC e SGSN nelle reti mobili 2G/3G "
-                    "(location update, autenticazione, SMS, USSD)."
-                ),
-            },
-            {
-                "id": 11,
-                "name": "SNM",
-                "index": "mod_ss7.raw_snm",
-                "description": (
-                    "Signalling Network Management messages dell'MTP3 "
-                    "SS7: gestione di link e route (COO, COA, CBD, CBA, "
-                    "TFP, TFA, ecc.)."
-                ),
-            },
-            {
-                "id": 12,
-                "name": "SSNM",
-                "index": "mod_ss7.raw_ssnm",
-                "description": (
-                    "SCCP Signalling Network Management: notifiche di "
-                    "stato del sottosistema SCCP (SSP, SSA, SST) per la "
-                    "raggiungibilita dei subsystem SS7."
-                ),
-            },
-            {
-                "id": 13,
-                "name": "SCMG",
-                "index": "mod_ss7.raw_scmg",
-                "description": (
-                    "SCCP Management messages: gestione e diagnostica "
-                    "del livello SCCP in SS7."
-                ),
-            },
-            {
-                "id": 14,
-                "name": "LSSU",
-                "index": "mod_ss7.raw_lssu",
-                "description": (
-                    "Link Status Signal Unit dell'MTP2 SS7: segnala lo "
-                    "stato del link di segnalazione (allineamento, out "
-                    "of service, processor outage)."
-                ),
-            },
-            {
-                "id": 15,
-                "name": "DNS",
-                "index": "mod_dns.raw_dns",
-                "description": (
-                    "Transazioni Domain Name System (RFC 1035): query e "
-                    "response di risoluzione nomi, inclusi record A, "
-                    "AAAA, NAPTR, SRV usati anche da ENUM/IMS."
-                ),
-            },
-            {
-                "id": 16,
-                "name": "DIAMETER",
-                "index": "mod_diameter.raw_diameter",
-                "description": (
-                    "Protocollo Diameter (RFC 6733) per AAA in reti IMS "
-                    "ed EPC: interfacce Gx, Gy, Rx, S6a, Sh, Cx ecc. "
-                    "per autenticazione, autorizzazione e charging."
-                ),
-            },
-            {
-                "id": 17,
-                "name": "S3CP",
-                "index": "mod_s3cp.raw_s3cp",
-                "description": (
-                    "Cartellino del protocollo di controllo S3CP "
-                    "(Session/Service Control), usato in piattaforme "
-                    "interne per il controllo di sessione applicativa."
-                ),
-            },
-            {
-                "id": 18,
-                "name": "GTP",
-                "index": "mod_mobile.raw_gtp",
-                "description": (
-                    "GPRS Tunneling Protocol nelle sue varianti "
-                    "GTP-C (control plane: creazione/modifica/cancellazione "
-                    "PDP/PDN context) e GTP-U (user plane), trasversale "
-                    "a 2G/3G/4G."
-                ),
-            },
-            {
-                "id": 19,
-                "name": "LDAP",
-                "index": "mod_ldap.raw_ldap",
-                "description": (
-                    "Lightweight Directory Access Protocol (RFC 4511): "
-                    "operazioni bind, search, modify verso directory "
-                    "server, comunemente HSS/HLR frontend e profili "
-                    "abbonati."
-                ),
-            },
-            {
-                "id": 20,
-                "name": "CDR",
-                "index": "mod_ip.raw_ip_cdr",
-                "description": (
-                    "Cartellino IP generico di tipo CDR: aggregazione "
-                    "di flussi IP (5-tuple) con metriche di volume, "
-                    "durata e timestamp, indipendente dal protocollo "
-                    "applicativo."
-                ),
-            },
-            {
-                "id": 21,
-                "name": "CDRI",
-                "index": "mod_ip.raw_ip_cdri",
-                "description": (
-                    "Variante 'intermedia' del CDR IP: record parziali "
-                    "emessi periodicamente per flussi di lunga durata "
-                    "(interim accounting), prima del record finale."
-                ),
-            },
-            {
-                "id": 22,
-                "name": "HTTP TR",
-                "index": "mod_http.raw_http_tr",
-                "description": (
-                    "HTTP Transaction: singola coppia request/response "
-                    "HTTP/HTTPS con metodo, URL, status code, header "
-                    "principali, byte scambiati e tempi di risposta."
-                ),
-            },
-            {
-                "id": 23,
-                "name": "HTTP SESS",
-                "index": "",
-                "description": (
-                    "HTTP Session: aggregazione di piu transazioni HTTP "
-                    "appartenenti alla stessa sessione utente/connessione "
-                    "TCP, con metriche complessive di sessione."
-                ),
-            },
-            {
-                "id": 24,
-                "name": "VIDEO",
-                "index": "mod_ip.raw_ip_video",
-                "description": (
-                    "Cartellino di flusso video IP (RTP/RTSP/HLS/DASH): "
-                    "metriche di qualita come bitrate, jitter, packet "
-                    "loss, rebuffering e codec usati per streaming."
-                ),
-            },
-            {
-                "id": 26,
-                "name": "S1AP",
-                "index": "mod_mobile.raw_s1ap",
-                "description": (
-                    "S1 Application Protocol (3GPP TS 36.413): "
-                    "segnalazione tra eNodeB e MME nell'EPC LTE per "
-                    "gestione dei bearer e mobility dell'UE."
-                ),
-            },
-            {
-                "id": 27,
-                "name": "S1AP CTX",
-                "index": "mod_mobile.raw_s1ap_ctx",
-                "description": (
-                    "Contesto S1AP per UE: cartellino aggregato che "
-                    "riassume l'intero ciclo di vita del contesto di un "
-                    "utente sull'interfaccia S1 (attach, handover, "
-                    "release)."
-                ),
-            },
-            {
-                "id": 28,
-                "name": "SGSAP",
-                "index": "mod_mobile.raw_sgsap",
-                "description": (
-                    "SGs Application Protocol (3GPP TS 29.118): "
-                    "interlavoro tra MME (LTE) e MSC (CS) per CSFB e "
-                    "consegna SMS over SGs."
-                ),
-            },
-            {
-                "id": 29,
-                "name": "CAMEL",
-                "index": "mod_ss7.raw_camel",
-                "description": (
-                    "Customised Applications for Mobile networks "
-                    "Enhanced Logic: dialoghi SS7 per servizi IN su "
-                    "reti mobili (prepagato, roaming intelligente, "
-                    "VPN mobili)."
-                ),
-            },
-            {
-                "id": 30,
-                "name": "PFCP",
-                "index": "mod_mobile.raw_pfcp",
-                "description": (
-                    "Packet Forwarding Control Protocol (3GPP TS 29.244): "
-                    "interfaccia Sx/N4 tra control plane (SMF/SGW-C) e "
-                    "user plane (UPF/SGW-U) in EPC CUPS e 5GC."
-                ),
-            },
-            {
-                "id": 31,
-                "name": "MOSTI",
-                "index": "mod_mobile.raw_mosti",
-                "description": (
-                    "Cartellino interno MOSTI per il monitoraggio di "
-                    "sessioni mobili e correlazione di eventi cross-"
-                    "interfaccia."
-                ),
-            },
-            {
-                "id": 32,
-                "name": "NAUSF",
-                "index": "mod_mobile.raw_nausf",
-                "description": (
-                    "Service Based Interface Nausf del 5G Core: "
-                    "autenticazione primaria dell'UE gestita dall'AUSF "
-                    "verso AMF e UDM."
-                ),
-            },
-            {
-                "id": 33,
-                "name": "NGAP CTX",
-                "index": "mod_mobile.raw_ngap_ctx",
-                "description": (
-                    "Contesto NGAP per UE: aggregazione del ciclo di "
-                    "vita dell'utente sull'interfaccia N2 tra gNB e AMF "
-                    "(registration, PDU session, handover)."
-                ),
-            },
-            {
-                "id": 34,
-                "name": "NUDM",
-                "index": "mod_mobile.raw_nudm",
-                "description": (
-                    "Service Based Interface Nudm del 5G Core: accesso "
-                    "ai dati di sottoscrizione gestiti dall'UDM "
-                    "(profili, autenticazione, autorizzazioni)."
-                ),
-            },
-            {
-                "id": 35,
-                "name": "NGAP",
-                "index": "mod_mobile.raw_ngap",
-                "description": (
-                    "NG Application Protocol (3GPP TS 38.413): "
-                    "segnalazione tra gNB e AMF sull'interfaccia N2 "
-                    "del 5G Core."
-                ),
-            },
-            {
-                "id": 36,
-                "name": "NAMF",
-                "index": "mod_mobile.raw_namf",
-                "description": (
-                    "Service Based Interface Namf del 5G Core: servizi "
-                    "esposti dall'AMF (Access and Mobility Management "
-                    "Function) per gestione registrazione e mobility."
-                ),
-            },
-            {
-                "id": 37,
-                "name": "NSMF",
-                "index": "mod_mobile.raw_nsmf",
-                "description": (
-                    "Service Based Interface Nsmf del 5G Core: servizi "
-                    "dell'SMF (Session Management Function) per "
-                    "creazione e gestione delle PDU session."
-                ),
-            },
-            {
-                "id": 38,
-                "name": "NSMSF",
-                "index": "mod_mobile.raw_nsmsf",
-                "description": (
-                    "Service Based Interface Nsmsf del 5G Core: "
-                    "servizi dell'SMSF per il trasporto SMS over NAS "
-                    "in 5G."
-                ),
-            },
-            {
-                "id": 39,
-                "name": "NNSSF",
-                "index": "mod_mobile.raw_nnssf",
-                "description": (
-                    "Service Based Interface Nnssf del 5G Core: "
-                    "selezione del network slice tramite NSSF "
-                    "(Network Slice Selection Function)."
-                ),
-            },
-            {
-                "id": 40,
-                "name": "IUPS",
-                "index": "mod_mobile.raw_iups",
-                "description": (
-                    "Interfaccia Iu-PS (3G UTRAN): segnalazione RANAP "
-                    "tra RNC e SGSN per il packet switched domain."
-                ),
-            },
-            {
-                "id": 41,
-                "name": "A",
-                "index": "mod_mobile.raw_mobile_a",
-                "description": (
-                    "Interfaccia A (2G GERAN): segnalazione BSSAP tra "
-                    "BSC e MSC per il circuit switched domain GSM."
-                ),
-            },
-            {
-                "id": 42,
-                "name": "IUCS",
-                "index": "mod_mobile.raw_iucs",
-                "description": (
-                    "Interfaccia Iu-CS (3G UTRAN): segnalazione RANAP "
-                    "tra RNC e MSC per il circuit switched domain UMTS."
-                ),
-            },
-            {
-                "id": 43,
-                "name": "GB",
-                "index": "mod_mobile.raw_gb",
-                "description": (
-                    "Interfaccia Gb (2G/2.5G): segnalazione BSSGP/NS "
-                    "tra BSS e SGSN per il packet switched domain GPRS/"
-                    "EDGE."
-                ),
-            },
-            {
-                "id": 44,
-                "name": "NPCF",
-                "index": "mod_mobile.raw_npcf",
-                "description": (
-                    "Service Based Interface Npcf del 5G Core: policy "
-                    "control esposto dal PCF (Policy Control Function) "
-                    "per QoS e charging rules."
-                ),
-            },
-            {
-                "id": 45,
-                "name": "GEOLOCATION",
-                "index": "mod_geolocation.raw_geolocation",
-                "description": (
-                    "Cartellino di geolocalizzazione: posizione stimata "
-                    "di terminali/utenti (cell-id, TA, GPS, A-GPS, "
-                    "trilateraziona) con timestamp e accuratezza."
-                ),
-            },
-            {
-                "id": 46,
-                "name": "NNRF",
-                "index": "mod_mobile.raw_nnrf",
-                "description": (
-                    "Service Based Interface Nnrf del 5G Core: "
-                    "registrazione e discovery delle Network Function "
-                    "tramite NRF (Network Repository Function)."
-                ),
-            },
-            {
-                "id": 47,
-                "name": "SIP SCENARIO",
-                "index": "mod_voip.raw_sip_scenario",
-                "description": (
-                    "Scenario SIP end-to-end: correlazione di piu "
-                    "dialoghi/transazioni SIP appartenenti a una stessa "
-                    "esperienza utente (es. call forking, transfer, "
-                    "forwarding)."
-                ),
-            },
-            {
-                "id": 48,
-                "name": "S1AP USER",
-                "index": "mod_mobile.raw_s1ap_user",
-                "description": (
-                    "Vista user-centric dei dati S1AP: cartellino "
-                    "aggregato per singolo utente LTE con tutti gli "
-                    "eventi S1 a esso associati."
-                ),
-            },
-            {
-                "id": 49,
-                "name": "EBM EVENTS",
-                "index": "mod_tma.raw_ebm_event",
-                "description": (
-                    "Eventi EBM (Event Based Monitoring) prodotti dal "
-                    "modulo TMA: notifiche puntuali su soglie, anomalie "
-                    "e KPI di rete."
-                ),
-            },
-        ]
+        def cdr(cdr_id: int, name: str, metadata: str) -> Dict[str, Any]:
+            return {"id": cdr_id, "name": name, "metadata": metadata}
 
+        return [
+            # VOIP / SIP
+            cdr(1,  "SIP Call",      "Cartellino di chiamata VoIP SIP: sessione voce/video completa con INVITE, ACK, BYE, durata, endpoint, codec."),
+            cdr(2,  "SIP Register",  "Registrazione utente SIP al registrar: AOR, contact, expires, esito autenticazione."),
+            cdr(5,  "SIP METHOD",    "Singola call o metodo SIP: OPTIONS, MESSAGE, SUBSCRIBE, NOTIFY, REFER, INFO."),
+            cdr(47, "SIP SCENARIO",  "Scenario SIP end-to-end: correlazione di più dialoghi SIP per call forking, transfer, forwarding."),
+
+            # VOIP / H323 e Gateway
+            cdr(3,  "H323",          "Chiamata VoIP H.323: segnalazione H.225/Q.931 e controllo H.245, tipica di gateway PSTN legacy."),
+            cdr(4,  "H248/MEGACO",   "Controllo gateway H.248/MEGACO tra MGC e MG: gestione terminazioni e contesti media in reti NGN."),
+
+            # SS7 / Segnalazione PSTN e mobile 2G-3G
+            cdr(6,  "ISUP",          "Segnalazione SS7 ISUP: chiamata TDM/PSTN tra centrali con IAM, ACM, ANM, REL, RLC."),
+            cdr(7,  "IUA",           "Trasporto segnalazione ISDN Q.921/Q.931 su SCTP (SIGTRAN IUA): ponte TDM-IP."),
+            cdr(8,  "ASERI",         "Segnalazione proprietaria ASERI/CAS per interconnessioni storiche rete italiana TDM."),
+            cdr(9,  "INAP",          "Dialogo SS7 INAP tra SSP e SCP per servizi rete intelligente: numeri verdi, prepagato, VPN voce."),
+            cdr(10, "MAP",           "Segnalazione SS7 MAP tra HLR, VLR, MSC, SMSC, SGSN: location update, autenticazione, SMS, USSD mobile 2G/3G."),
+            cdr(11, "SNM",           "Messaggi gestione rete di segnalazione MTP3 SS7: link e route COO, COA, TFP, TFA."),
+            cdr(12, "SSNM",          "Notifiche stato sottosistema SCCP SS7: SSP, SSA, SST per raggiungibilità subsystem."),
+            cdr(13, "SCMG",          "Gestione e diagnostica livello SCCP SS7."),
+            cdr(14, "LSSU",          "Link Status Signal Unit MTP2 SS7: allineamento e stato link di segnalazione."),
+            cdr(29, "CAMEL",         "Dialogo SS7 CAMEL tra SSF e SCF per servizi mobili intelligenti: prepagato, roaming, VPN mobile."),
+
+            # DNS
+            cdr(15, "DNS",           "Transazione DNS: query e response di risoluzione nomi, record A, AAAA, NAPTR, SRV, ENUM."),
+
+            # DIAMETER / AAA
+            cdr(16, "DIAMETER",      "Sessione Diameter AAA per reti IMS ed EPC: interfacce Gx, Gy, Rx, S6a, Cx per autenticazione e charging."),
+
+            # S3CP
+            cdr(17, "S3CP",          "Controllo sessione applicativa S3CP: protocollo interno per session e service control."),
+
+            # LDAP
+            cdr(19, "LDAP",          "Operazione LDAP su directory server: bind, search, modify verso HSS/HLR frontend e profili abbonati."),
+
+            # HTTP
+            cdr(22, "HTTP TR",       "Transazione HTTP singola: request/response con metodo, URL, status code, header, byte e tempi."),
+            cdr(23, "HTTP SESS",     "Sessione HTTP: aggregazione di più transazioni HTTP sulla stessa connessione TCP con metriche complessive."),
+
+            # IP / Traffic
+            cdr(20, "CDR",           "Cartellino IP generico CDR: flusso IP a 5-tuple con volume, durata e timestamp."),
+            cdr(21, "CDRI",          "Cartellino IP intermedio CDRI: record parziale emesso periodicamente per flussi di lunga durata (interim accounting)."),
+            cdr(24, "VIDEO",         "Flusso video IP RTP/RTSP/HLS/DASH: bitrate, jitter, packet loss, rebuffering, codec per streaming."),
+
+            # GEOLOCATION
+            cdr(45, "GEOLOCATION",   "Geolocalizzazione terminale: posizione stimata con cell-id, TA, GPS, A-GPS, trilaterazione, timestamp e accuratezza."),
+
+            # MOBILE / LTE 4G
+            cdr(18, "GTP",           "Tunneling GTP control e user plane: creazione e gestione PDP/PDN context tra SGSN/SGW e GGSN/PGW in 2G/3G/4G."),
+            cdr(26, "S1AP",          "Segnalazione S1AP LTE tra eNodeB e MME: gestione bearer e mobilità UE sull'interfaccia S1."),
+            cdr(27, "S1AP CTX",      "Contesto S1AP aggregato per UE LTE: ciclo di vita completo su interfaccia S1 con attach, handover, release."),
+            cdr(28, "SGSAP",         "Protocollo SGs tra MME e MSC: interworking LTE-CS per CSFB e SMS over SGs."),
+            cdr(48, "S1AP USER",     "Vista user-centric S1AP: aggregazione di tutti gli eventi S1 associati a un singolo utente LTE."),
+            cdr(40, "IUPS",          "Segnalazione RANAP interfaccia Iu-PS 3G: RNC e SGSN per packet switched domain UMTS."),
+            cdr(41, "A",             "Segnalazione BSSAP interfaccia A 2G: BSC e MSC per circuit switched domain GSM."),
+            cdr(42, "IUCS",          "Segnalazione RANAP interfaccia Iu-CS 3G: RNC e MSC per circuit switched domain UMTS."),
+            cdr(43, "GB",            "Segnalazione BSSGP/NS interfaccia Gb 2G/GPRS: BSS e SGSN per packet switched GPRS/EDGE."),
+            cdr(30, "PFCP",          "Controllo PFCP interfaccia N4/Sx: SMF/SGW-C verso UPF/SGW-U per separazione control e user plane in EPC CUPS e 5GC."),
+            cdr(31, "MOSTI",         "Monitoraggio sessioni mobili MOSTI: correlazione eventi cross-interfaccia per analisi esperienza utente mobile."),
+
+            # MOBILE / 5G Core SBA
+            cdr(32, "NAUSF",         "Servizio 5G Core Nausf: autenticazione primaria UE tra AUSF, AMF e UDM."),
+            cdr(33, "NGAP CTX",      "Contesto NGAP aggregato per UE 5G: ciclo di vita su interfaccia N2 con registration, PDU session, handover."),
+            cdr(34, "NUDM",          "Servizio 5G Core Nudm: accesso dati di sottoscrizione UDM per profili, autenticazione e autorizzazioni."),
+            cdr(35, "NGAP",          "Segnalazione NGAP interfaccia N2 5G: gNB e AMF per gestione accesso e mobilità."),
+            cdr(36, "NAMF",          "Servizio 5G Core Namf: AMF per registrazione UE, gestione mobilità e sessioni NAS."),
+            cdr(37, "NSMF",          "Servizio 5G Core Nsmf: SMF per creazione, modifica e rilascio PDU session."),
+            cdr(38, "NSMSF",         "Servizio 5G Core Nsmsf: SMSF per trasporto SMS over NAS in 5G."),
+            cdr(39, "NNSSF",         "Servizio 5G Core Nnssf: NSSF per selezione e gestione network slice."),
+            cdr(44, "NPCF",          "Servizio 5G Core Npcf: PCF per policy control, QoS e charging rules."),
+            cdr(46, "NNRF",          "Servizio 5G Core Nnrf: NRF per registrazione e discovery delle network function."),
+            cdr(49, "EBM EVENTS",    "Eventi EBM (Event Based Monitoring): notifiche puntuali su soglie, anomalie e KPI di rete prodotti dal modulo TMA."),
+        ]
